@@ -1,7 +1,7 @@
 {
   "name": "暮食 Kitchen",
   "short_name": "暮食",
-  "start_url": ".",
+  "start_url": "./index.html",
   "display": "standalone",
   "background_color": "#F5F5F7",
   "theme_color": "#F5F5F7",
