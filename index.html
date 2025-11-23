@@ -1,0 +1,516 @@
+import React, { useState, useEffect, useRef } from 'react';
+import { Plus, ShoppingCart, ChefHat, Package, ExternalLink, Trash2, Edit2, MapPin, Check, X, Search, ArrowRight, Info, Upload, Image as ImageIcon, CalendarCheck } from 'lucide-react';
+
+// --- 莫兰迪色系配置 & 工具函数 ---
+const colors = {
+  bg: '#F5F5F7', // 极淡的暖灰背景
+  card: '#FFFFFF',
+  primary: '#9D8CA1', // 莫兰迪紫
+  primaryLight: '#E6E1E8',
+  secondary: '#DCC4CA', // 莫兰迪粉
+  textMain: '#4A4A4A', // 深灰文字
+  textSub: '#8C8C8C', // 浅灰文字
+  accent: '#A8B0BC', // 雾霾蓝灰
+  danger: '#E5989B', // 柔和的红
+  success: '#9AB8A6', // 莫兰迪绿
+};
+
+const locations = [
+  { id: 'de', name: '德超', color: 'bg-stone-200 text-stone-700' },
+  { id: 'cn', name: '亚超', color: 'bg-rose-100 text-rose-700' },
+  { id: 'tr', name: '土超', color: 'bg-orange-100 text-orange-800' },
+];
+
+const placeholderImg = "https://images.unsplash.com/photo-1546069901-ba9599a7e63c?auto=format&fit=crop&w=800&q=80";
+
+// --- 默认初始数据 (仅当本地无数据时使用) ---
+const INITIAL_RECIPES = [
+  {
+    id: 1,
+    name: '番茄滑蛋牛肉',
+    type: '15min',
+    image: 'https://images.unsplash.com/photo-1627207644006-277564b22349?auto=format&fit=crop&w=800&q=80',
+    link: 'https://www.xiaohongshu.com',
+    ingredients: [
+      { name: '牛肉卷', quantity: '1', location: 'cn' },
+      { name: '番茄', quantity: '3', location: 'de' },
+      { name: '鸡蛋', quantity: '2', location: 'de' }
+    ]
+  },
+  {
+    id: 2,
+    name: '迷迭香烤羊排',
+    type: 'other',
+    image: 'https://images.unsplash.com/photo-1544025162-d76694265947?auto=format&fit=crop&w=800&q=80',
+    link: '',
+    ingredients: [
+      { name: '羊排', quantity: '4', location: 'tr' },
+      { name: '迷迭香', quantity: '1', location: 'de' }
+    ]
+  }
+];
+
+// --- 核心组件 ---
+
+export default function KitchenApp() {
+  const [activeTab, setActiveTab] = useState('recipes');
+  const [showPagoda, setShowPagoda] = useState(false);
+  
+  // 全局提示状态
+  const [toast, setToast] = useState({ show: false, message: '' });
+  // 全局确认框状态
+  const [confirmModal, setConfirmModal] = useState({ show: false, title: '', onConfirm: null });
+
+  // --- 辅助 hook：带本地存储的 State ---
+  // 这个 Hook 确保了刷新页面后数据依然存在，这是 PWA 体验的关键
+  const usePersistentState = (key, initialValue) => {
+    const [state, setState] = useState(() => {
+      try {
+        const item = window.localStorage.getItem(key);
+        return item ? JSON.parse(item) : initialValue;
+      } catch (error) {
+        console.error("Error reading localStorage:", error);
+        return initialValue;
+      }
+    });
+
+    useEffect(() => {
+      try {
+        window.localStorage.setItem(key, JSON.stringify(state));
+      } catch (error) {
+        console.error("Error saving to localStorage:", error);
+      }
+    }, [key, state]);
+
+    return [state, setState];
+  };
+
+  // 辅助函数：显示提示
+  const showToast = (msg) => {
+    setToast({ show: true, message: msg });
+    setTimeout(() => setToast({ show: false, message: '' }), 3000);
+  };
+
+  // 辅助函数：显示确认框
+  const requestConfirm = (title, action) => {
+    setConfirmModal({ show: true, title, onConfirm: action });
+  };
+
+  // --- 数据状态 (使用持久化 Hook) ---
+  const [recipes, setRecipes] = usePersistentState('muse_recipes', INITIAL_RECIPES);
+  
+  const [cart, setCart] = usePersistentState('muse_cart', [
+    { id: 101, name: '牛奶', quantity: '2', location: 'de', checked: false }
+  ]);
+
+  const [inventory, setInventory] = usePersistentState('muse_inventory', [
+    { id: 201, name: '生抽', quantity: '1', category: 'seasoning', location: 'cn' },
+    { id: 202, name: '意大利面', quantity: '2', category: 'food', location: 'de' }
+  ]);
+
+  const [mealPlan, setMealPlan] = usePersistentState('muse_mealplan', [
+     { id: 301, name: '周末晚餐：迷迭香烤羊排', completed: false }
+  ]);
+
+  // --- 核心逻辑 ---
+
+  const addToCart = (items, quiet = false) => {
+    const newCart = [...cart];
+    items.forEach(item => {
+      // 简单去重逻辑：如果同名同地点且未购买，则增加数量(这里简单处理为追加，可视需求优化)
+      newCart.push({
+        id: Date.now() + Math.random(),
+        name: item.name,
+        quantity: item.quantity || '1',
+        location: item.location,
+        checked: false
+      });
+    });
+    setCart(newCart);
+    if (!quiet) showToast(`已将 ${items.length} 种食材加入购物车`);
+  };
+
+  const handleScheduleMeal = (recipe) => {
+    // 1. 加购物车
+    addToCart(recipe.ingredients, true);
+    
+    // 2. 加 Meal Plan
+    const newPlanItem = {
+      id: Date.now(),
+      name: recipe.name,
+      completed: false
+    };
+    setMealPlan([...mealPlan, newPlanItem]);
+
+    // 3. 提示
+    showToast(`已安排！食材入库，任务已建立`);
+  };
+
+  const restockFromInventory = (item) => {
+    addToCart([{ name: item.name, quantity: '1', location: item.location }]);
+  };
+
+  return (
+    <div className="min-h-screen font-sans relative overflow-hidden selection:bg-purple-200 select-none sm:select-text" style={{ backgroundColor: colors.bg, color: colors.textMain }}>
+      
+      {/* 全局 Toast 提示 */}
+      <div className={`fixed top-4 left-1/2 transform -translate-x-1/2 z-[60] transition-all duration-300 pointer-events-none ${toast.show ? 'translate-y-0 opacity-100' : '-translate-y-20 opacity-0'}`}>
+        <div className="bg-slate-800/90 backdrop-blur text-white px-6 py-3 rounded-full shadow-xl flex items-center space-x-2">
+          <Check size={16} className="text-green-400" />
+          <span className="text-sm font-medium">{toast.message}</span>
+        </div>
+      </div>
+
+      {/* 全局确认弹窗 */}
+      {confirmModal.show && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-slate-900/30 backdrop-blur-sm animate-in fade-in">
+          <div className="bg-white rounded-2xl p-6 w-full max-w-xs shadow-2xl scale-100 animate-in zoom-in-95 duration-200">
+            <h3 className="text-lg font-bold text-slate-700 mb-2">确认操作</h3>
+            <p className="text-slate-500 mb-6">{confirmModal.title}</p>
+            <div className="flex space-x-3">
+              <button 
+                onClick={() => setConfirmModal({ show: false, title: '', onConfirm: null })}
+                className="flex-1 py-3 bg-slate-100 text-slate-500 rounded-xl font-medium active:scale-95 transition-transform"
+              >
+                取消
+              </button>
+              <button 
+                onClick={() => {
+                  confirmModal.onConfirm();
+                  setConfirmModal({ show: false, title: '', onConfirm: null });
+                }}
+                className="flex-1 py-3 text-white rounded-xl font-medium active:scale-95 transition-transform shadow-lg shadow-red-100"
+                style={{ backgroundColor: colors.danger }}
+              >
+                删除
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 膳食宝塔弹窗 */}
+      {showPagoda && <PagodaModal onClose={() => setShowPagoda(false)} />}
+
+      {/* 顶部标题栏 + 固定泡泡 */}
+      <div className="pt-safe-top pb-4 px-6 sticky top-0 z-20 backdrop-blur-xl bg-white/50 flex items-center justify-between border-b border-white/20">
+        <div className="pt-4">
+          <h1 className="text-2xl font-bold tracking-tight text-slate-700">
+            {activeTab === 'recipes' && '私房菜谱'}
+            {activeTab === 'cart' && '购物清单'}
+            {activeTab === 'inventory' && '家庭存货'}
+            {activeTab === 'plan' && '美食安排'}
+          </h1>
+          <p className="text-xs text-slate-400 mt-1 tracking-wider uppercase">MY KITCHEN • LIFE</p>
+        </div>
+        
+        {/* 固定在标题栏右侧的呼吸泡泡 */}
+        <div className="pt-4">
+          <PulseBubble onClick={() => setShowPagoda(true)} />
+        </div>
+      </div>
+
+      {/* 主要内容区域 */}
+      <div className="pb-32 px-4 max-w-md mx-auto pt-2">
+        {activeTab === 'recipes' && (
+          <RecipesView 
+            recipes={recipes} 
+            setRecipes={setRecipes} 
+            onSchedule={handleScheduleMeal}
+            requestConfirm={requestConfirm}
+          />
+        )}
+        {activeTab === 'cart' && (
+          <CartView 
+            cart={cart} 
+            setCart={setCart}
+            requestConfirm={requestConfirm} 
+          />
+        )}
+        {activeTab === 'inventory' && (
+          <InventoryView 
+            inventory={inventory} 
+            setInventory={setInventory} 
+            onRestock={restockFromInventory}
+            requestConfirm={requestConfirm}
+          />
+        )}
+        {activeTab === 'plan' && (
+          <MealPlanView 
+            mealPlan={mealPlan} 
+            setMealPlan={setMealPlan}
+            requestConfirm={requestConfirm}
+          />
+        )}
+      </div>
+
+      {/* 底部导航栏 */}
+      <div className="fixed bottom-6 left-2 right-2 bg-white/90 backdrop-blur-xl rounded-full shadow-2xl shadow-purple-900/10 h-16 flex items-center justify-between px-2 z-30 max-w-md mx-auto border border-white/50 pb-safe-bottom">
+        <NavButton active={activeTab === 'recipes'} onClick={() => setActiveTab('recipes')} icon={ChefHat} label="菜谱" />
+        <NavButton active={activeTab === 'cart'} onClick={() => setActiveTab('cart')} icon={ShoppingCart} label="购物" count={cart.filter(i => !i.checked).length} />
+        <NavButton active={activeTab === 'inventory'} onClick={() => setActiveTab('inventory')} icon={Package} label="存货" />
+        <NavButton active={activeTab === 'plan'} onClick={() => setActiveTab('plan')} icon={CalendarCheck} label="安排" count={mealPlan.filter(i => !i.completed).length} />
+      </div>
+
+    </div>
+  );
+}
+
+// --- 子视图组件 ---
+
+function MealPlanView({ mealPlan, setMealPlan, requestConfirm }) {
+  const [isAdding, setIsAdding] = useState(false);
+  const [newItemName, setNewItemName] = useState('');
+
+  const toggleComplete = (id) => {
+    setMealPlan(mealPlan.map(item => item.id === id ? { ...item, completed: !item.completed } : item));
+  };
+
+  const updateItemName = (id, newName) => {
+    setMealPlan(mealPlan.map(item => item.id === id ? { ...item, name: newName } : item));
+  };
+
+  const deleteItem = (id) => {
+    setMealPlan(mealPlan.filter(item => item.id !== id));
+  };
+
+  const addNewItem = () => {
+    if(!newItemName.trim()) return;
+    setMealPlan([...mealPlan, { id: Date.now(), name: newItemName, completed: false }]);
+    setNewItemName('');
+    setIsAdding(false);
+  };
+
+  const pending = mealPlan.filter(i => !i.completed);
+  const completed = mealPlan.filter(i => i.completed);
+
+  return (
+    <div className="space-y-6 animate-in fade-in duration-500">
+      {/* 统计卡片 */}
+      <div className="bg-gradient-to-br from-[#9D8CA1] to-[#86758a] rounded-[2rem] p-6 text-white shadow-lg shadow-purple-200 relative overflow-hidden">
+        <div className="absolute top-0 right-0 p-4 opacity-10">
+          <CalendarCheck size={80} />
+        </div>
+        <h3 className="font-bold text-lg mb-1 relative z-10">本周美食计划</h3>
+        <p className="text-purple-100 text-sm mb-4 relative z-10">已有 {pending.length} 个烹饪待办</p>
+        <div className="flex items-center space-x-2 relative z-10">
+           <div className="h-1.5 flex-1 bg-purple-900/30 rounded-full overflow-hidden">
+             <div 
+                className="h-full bg-white/90 rounded-full transition-all duration-500 ease-out" 
+                style={{ width: `${mealPlan.length ? (completed.length / mealPlan.length) * 100 : 0}%` }}
+             ></div>
+           </div>
+           <span className="text-xs font-bold">{completed.length}/{mealPlan.length}</span>
+        </div>
+      </div>
+
+      {/* 待办列表 */}
+      <div className="space-y-3">
+         <p className="text-xs font-bold text-slate-400 uppercase px-2">Pending • 待烹饪</p>
+         {pending.length === 0 && !isAdding && (
+           <div className="text-center py-8 text-slate-300 text-sm bg-white/50 rounded-2xl border border-dashed border-slate-200">
+             暂无安排，去菜谱里选几个吧
+           </div>
+         )}
+         
+         {pending.map(item => (
+           <TodoItem 
+             key={item.id} 
+             item={item} 
+             onToggle={() => toggleComplete(item.id)} 
+             onChange={(val) => updateItemName(item.id, val)}
+             onDelete={() => deleteItem(item.id)}
+           />
+         ))}
+
+         {isAdding ? (
+           <div className="flex items-center space-x-2 bg-white p-2 rounded-xl border-2 border-purple-100 animate-in fade-in zoom-in-95">
+             <input 
+               autoFocus
+               className="flex-1 bg-transparent px-2 outline-none text-slate-700"
+               placeholder="输入计划名称..."
+               value={newItemName}
+               onChange={e => setNewItemName(e.target.value)}
+               onKeyDown={e => e.key === 'Enter' && addNewItem()}
+             />
+             <button onClick={addNewItem} className="p-2 bg-[#9D8CA1] text-white rounded-lg active:scale-95 transition-transform">
+               <Check size={16} />
+             </button>
+           </div>
+         ) : (
+           <button 
+             onClick={() => setIsAdding(true)}
+             className="w-full py-3 border-2 border-dashed border-slate-200 rounded-2xl text-slate-400 text-sm font-medium hover:border-purple-200 hover:text-purple-400 hover:bg-white transition-all flex items-center justify-center space-x-2 active:scale-95"
+           >
+             <Plus size={16} />
+             <span>手动添加计划</span>
+           </button>
+         )}
+      </div>
+
+      {completed.length > 0 && (
+        <div className="space-y-3 pt-4 border-t border-slate-100">
+           <p className="text-xs font-bold text-slate-400 uppercase px-2">Completed • 已完成</p>
+           {completed.map(item => (
+             <TodoItem 
+               key={item.id} 
+               item={item} 
+               onToggle={() => toggleComplete(item.id)} 
+               onChange={(val) => updateItemName(item.id, val)}
+               onDelete={() => deleteItem(item.id)}
+             />
+           ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+const TodoItem = ({ item, onToggle, onChange, onDelete }) => (
+  <div className={`group flex items-center bg-white p-3 rounded-xl transition-all duration-300 border border-slate-50 ${item.completed ? 'opacity-50 grayscale' : 'shadow-sm hover:shadow-md'}`}>
+    <button 
+      onClick={onToggle}
+      className={`w-5 h-5 rounded-md border-2 mr-3 flex items-center justify-center transition-colors flex-shrink-0 ${
+        item.completed 
+          ? 'bg-[#9AB8A6] border-[#9AB8A6]' 
+          : 'border-slate-300 hover:border-[#9D8CA1]'
+      }`}
+    >
+      {item.completed && <Check size={12} className="text-white" />}
+    </button>
+    
+    <input 
+      className={`flex-1 bg-transparent outline-none transition-all w-full ${item.completed ? 'line-through text-slate-400' : 'text-slate-700 font-medium'}`}
+      value={item.name}
+      onChange={(e) => onChange(e.target.value)}
+    />
+    
+    <button onClick={onDelete} className="text-slate-200 hover:text-rose-400 md:opacity-0 md:group-hover:opacity-100 transition-all px-2 active:scale-90">
+      <X size={16} />
+    </button>
+  </div>
+);
+
+function RecipesView({ recipes, setRecipes, onSchedule, requestConfirm }) {
+  const [filter, setFilter] = useState('all');
+  const [isEditing, setIsEditing] = useState(false);
+  const [editingRecipe, setEditingRecipe] = useState(null);
+
+  const filteredRecipes = recipes.filter(r => filter === 'all' || r.type === filter);
+
+  const handleSave = (recipe) => {
+    if (editingRecipe && recipe.id === editingRecipe.id) {
+      setRecipes(recipes.map(r => r.id === recipe.id ? recipe : r));
+    } else {
+      setRecipes([...recipes, { ...recipe, id: Date.now() }]);
+    }
+    setIsEditing(false);
+    setEditingRecipe(null);
+  };
+
+  const handleDelete = (id) => {
+    requestConfirm('确定要删除这个菜谱吗？', () => {
+      setRecipes(recipes.filter(r => r.id !== id));
+    });
+  };
+
+  return (
+    <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+      <div className="flex space-x-3 mb-6 overflow-x-auto pb-2 scrollbar-hide -mx-4 px-4 sm:mx-0 sm:px-0">
+        {['all', '15min', 'other'].map(t => (
+          <button
+            key={t}
+            onClick={() => setFilter(t)}
+            className={`px-4 py-2 rounded-full text-sm transition-all duration-300 flex-shrink-0 ${
+              filter === t 
+                ? 'text-white shadow-lg shadow-purple-200' 
+                : 'bg-white text-slate-500 hover:bg-slate-50'
+            }`}
+            style={{ backgroundColor: filter === t ? colors.primary : undefined }}
+          >
+            {t === 'all' ? '全部' : t === '15min' ? '⚡ 15min快手' : '🍳 功夫菜'}
+          </button>
+        ))}
+      </div>
+
+      <div className="space-y-6">
+        {filteredRecipes.map(recipe => (
+          <div key={recipe.id} className="bg-white rounded-[2rem] p-4 shadow-sm hover:shadow-lg transition-all duration-300 border border-slate-50">
+            <div className="relative h-48 rounded-[1.5rem] overflow-hidden mb-4 group bg-slate-100">
+              <img src={recipe.image || placeholderImg} alt={recipe.name} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" />
+              <div className="absolute top-3 right-3 flex space-x-2 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
+                <button onClick={() => { setEditingRecipe(recipe); setIsEditing(true); }} className="p-2 bg-white/80 backdrop-blur rounded-full text-slate-700 hover:bg-white shadow-sm">
+                  <Edit2 size={16} />
+                </button>
+                <button onClick={() => handleDelete(recipe.id)} className="p-2 bg-white/80 backdrop-blur rounded-full text-rose-500 hover:bg-white shadow-sm">
+                  <Trash2 size={16} />
+                </button>
+              </div>
+              {recipe.type === '15min' && (
+                <div className="absolute bottom-3 left-3 px-3 py-1 bg-yellow-400/90 backdrop-blur text-white text-xs font-bold rounded-full shadow-sm">
+                  15min 快手
+                </div>
+              )}
+            </div>
+            
+            <div className="flex justify-between items-start mb-3">
+              <h3 className="text-xl font-bold text-slate-700">{recipe.name}</h3>
+              {recipe.link && (
+                <a href={recipe.link} target="_blank" rel="noopener noreferrer" className="text-rose-400 hover:text-rose-500 p-1">
+                  <ExternalLink size={20} />
+                </a>
+              )}
+            </div>
+
+            <div className="space-y-2 mb-4">
+              <div className="flex flex-wrap gap-2">
+                {recipe.ingredients.map((ing, idx) => (
+                  <span key={idx} className="px-2 py-1 bg-slate-50 rounded-lg text-sm text-slate-600 border border-slate-100">
+                    {ing.name} <span className="text-slate-400 text-xs">x{ing.quantity}</span>
+                  </span>
+                ))}
+              </div>
+            </div>
+
+            <button 
+              onClick={() => onSchedule(recipe)}
+              className="w-full py-3 rounded-xl flex items-center justify-center space-x-2 text-white font-medium transition-all active:scale-95 shadow-lg shadow-purple-100 hover:shadow-purple-200"
+              style={{ backgroundColor: colors.secondary }}
+            >
+              <ShoppingCart size={18} />
+              <span>安排这顿饭</span>
+            </button>
+          </div>
+        ))}
+      </div>
+      
+      {/* 底部保留足够空间给悬浮按钮 */}
+      <div className="h-12"></div>
+
+      <button 
+        onClick={() => { setEditingRecipe(null); setIsEditing(true); }}
+        className="fixed bottom-24 right-6 p-4 rounded-full text-white shadow-xl shadow-purple-300 hover:scale-110 active:scale-90 transition-all z-40"
+        style={{ backgroundColor: colors.primary }}
+      >
+        <Plus size={28} />
+      </button>
+
+      {isEditing && (
+        <RecipeForm 
+          initialData={editingRecipe} 
+          onSave={handleSave} 
+          onCancel={() => setIsEditing(false)} 
+        />
+      )}
+    </div>
+  );
+}
+
+function CartView({ cart, setCart, requestConfirm }) {
+  const groupedCart = cart.reduce((acc, item) => {
+    if (!acc[item.location]) acc[item.location] = [];
+    acc[item.location].push(item);
+    return acc;
+  }, {});
+
+  const toggleChec
